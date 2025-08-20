@@ -13,6 +13,7 @@ mydb = mysql.connector.connect(
   database="zenu"
 )
 cursor = mydb.cursor()
+# These are little notes for myself
 adr = ("",)
 val = ("", "")
 sql = ""
@@ -35,7 +36,7 @@ async def start_func():
     cursor.execute(sql, adr)
     status = str(tuple(cursor.fetchone())[0])
     await bot.change_presence(status= bot.status.IDLE, activity=status)
-    print(bot.user.display_name + " Online")
+    return print("Zenu Online\nStatus: "+ status)
 
 async def quinn(ctx: BaseContext):
     return ctx.author.id == 911407874117337150 or ctx.author.id == 554010229625454612
