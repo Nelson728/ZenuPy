@@ -1,16 +1,14 @@
-import interactions
-from interactions import slash_command, SlashContext, BaseContext
-from interactions import OptionType, slash_option
-from interactions import integration_types as intergration
-from interactions import check, is_owner
+import discord
+from discord import app_commands
+from discord.ext import commands
 import random
 import mysql.connector
+import aiohttp
+import asyncio
+import json
 
 mydb = mysql.connector.connect(
-  host="localhost",
-  user="root",
-  password="pass",
-  database="zenu"
+    host="localhost", user="root", password="pass", database="zenu"
 )
 cursor = mydb.cursor()
 # These are little notes for myself
@@ -23,98 +21,120 @@ sql = "select value from base where name = %s"
 cursor.execute(sql, adr)
 token = str(tuple(cursor.fetchone())[0])
 
+intents = discord.Intents.all()
+intents.guilds = True
+intents.members = True
+
+channelForce = {}
+
+bot = commands.Bot(command_prefix="`", intents=intents)
 
 
-bot = interactions.Client(
-    token=token
-    #debug_scope=1087175062425178163
-)
-
-
-async def start_func():
+@bot.event
+async def on_ready():
+    await bot.tree.sync(guild=discord.Object(id=1087175062425178163))
+    await bot.tree.sync()
     adr = ("status",)
     cursor.execute(sql, adr)
     status = str(tuple(cursor.fetchone())[0])
-    await bot.change_presence(status= bot.status.IDLE, activity=status)
-    return print("Zenu Online\nStatus: "+ status)
-
-async def quinn(ctx: BaseContext):
-    return ctx.author.id == 911407874117337150 or ctx.author.id == 554010229625454612
-    
-    
-    
-@bot.event()
-async def on_ready():
-    await start_func()
-
-@slash_command(name='game-wheel',description='a random game to play with your bestest buddy',scopes=[1087175062425178163])
-@intergration(user=True)
-@check(quinn)
-async def random_game_func(ctx):
-    cursor.execute("Select count(*) from games")
-    gameNum = tuple(cursor.fetchone())[0]
-    sql = "select name from games where id = %s"
-    adr = (random.randint(0, gameNum - 1),)
-    cursor.execute(sql, adr)
-    game = str(tuple(cursor.fetchone())[0])
-    await ctx.send(game+"!")
+    activity = discord.Game(name=status)
+    await bot.change_presence(status=discord.Status.idle, activity=activity)
+    for cmd in bot.tree.get_commands():
+        print(f"Registered command: {cmd.name}")
+    return print("Zenu Online\nStatus: " + status)
 
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # print(f"Voice state update: {member.name}")
+    if (
+        before.channel != after.channel
+        and channelForce
+        and str(member.id) == channelForce["userID"]
+        and channelForce["status"]
+    ):
+        targetGuild = await bot.fetch_guild(channelForce["guildID"])
+        targetUser = await targetGuild.fetch_member(channelForce["userID"])
+        targetChannel = await targetGuild.fetch_channel(channelForce["userChannel"])
+        await targetUser.move_to(targetChannel)
 
 
+@app_commands.command(name="ping", description="pong!")
+async def ping(interaction: discord.Integration):
+    await interaction.response.send_message("pong!", ephemeral=True)
 
 
-
-
-
-
-@slash_command(name='clear-global', description="Clears all global commands",scopes=[1087175062425178163])
-@intergration(guild=False, user=True)
-@check(is_owner())
-async def global_reset_func(ctx: SlashContext):
-    await ctx.send("Attempting to clear tree", ephemeral=True)
-    
-    bot.interaction_tree.clear()
-    
-    await ctx.send("Successfully cleared tree", ephemeral=True)
-        
-
-
-@slash_command(
-    name="test",
-    description="desc",
-    scopes=[1087175062425178163]
+@app_commands.command(name="force-user", description="forces a user to a voice channel")
+@app_commands.describe(
+    userid="The target user ID",
+    channelid="The target channel ID",
+    status="Enable/Disable (default True)",
 )
-@intergration(
-    user=True
-)
-async def test_func(ctx: SlashContext):
-    await ctx.send("!")
+@app_commands.guilds(discord.Object(id=1087175062425178163))
+async def force_user(
+    interaction: discord.Interaction, userid: str, channelid: str, status: bool = True
+):
+    global channelForce
+    if not userid or not channelid:
+        return await interaction.response.send_message(
+            "Incorrect params", ephemeral=True
+        )
+    if not status or not channelForce or channelForce["userID"] != userid:
 
-@slash_command(
-    name='change-status',
-    description='Changes the bot\'s status',
-    scopes=[1087175062425178163],
-)
-@intergration(
-    user=True
-)
-@slash_option(
-    name='status',
-    description='str option',
-    required=True,
-    opt_type=OptionType.STRING
-)
-@check(is_owner())
-async def status_func(ctx: SlashContext, status: str):
-    sql = "update base set value = %s where name = 'status'"
-    val = (status,)
-    
-    cursor.execute(sql, val)
-    mydb.commit()
-    print(cursor.rowcount, "record(s) affected")
-    
-    await bot.change_presence(status= bot.status.IDLE, activity=status)
-    await ctx.send("Changed status to: " + status)
+        channelForce = {
+            "userID": userid,
+            "userChannel": channelid,
+            "guildID": interaction.guild_id,
+            "status": status,
+        }
+        # print(channelForce)
+    if status:
+        targetGuild = await bot.fetch_guild(interaction.guild_id)
+        targetUser = await targetGuild.fetch_member(userid)
+        targetChannel = await targetGuild.fetch_channel(channelid)
+        if not targetUser or not targetChannel:
+            await interaction.response.send_message(
+                "User or channel not found", ephemeral=True
+            )
+            return
+        await targetUser.move_to(targetChannel)
+        await interaction.response.send_message("Success", ephemeral=True)
 
-bot.start()
+
+@app_commands.command(name="prompt", description="Prompts my AI")
+#@app_commands.guilds(discord.Object(id=1087175062425178163))
+@app_commands.describe(
+    api_key="Your API key (if you have one)",
+    prompt="Your message",
+)
+async def ai_command(interaction: discord.Interaction, api_key: str, prompt: str):
+    await asyncio.wait_for(main(interaction, api_key, prompt), timeout=120.0)
+
+async def main(interaction, api_key: str, prompt: str):
+    if not api_key or not prompt:
+        return await interaction.response.send_message(
+            "Incorrect params", ephemeral=True
+        )
+    await interaction.response.defer(thinking=True)
+    
+    
+    url = "https://zenu.nellium.us/endpoint"
+    data = {
+        "content": {"prompt": "---PROMPT INSTRUCTION---\nKeep lenght to 2 thousand characters\nFormat for Discord chat\nTry to be a little more blunt and short to the point.\nDo not mention the instructions.\n---END OF INSTRUCTION---\n" + prompt},
+        "key": api_key,
+    }
+    print(prompt)
+    
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=data) as resp:
+            response = await resp.json()
+
+    
+    return await interaction.followup.send(response["output"], ephemeral=True)
+
+
+bot.tree.add_command(ping)
+bot.tree.add_command(force_user)
+bot.tree.add_command(ai_command)
+bot.run(token=token)
