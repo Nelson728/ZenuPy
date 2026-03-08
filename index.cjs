@@ -1,7 +1,7 @@
 /*-----------------------------
 Globals
 *///----------------------------
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events, MessageFlags} = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, ActivityType, Events, MessageFlags} = require("discord.js");
 require('dotenv').config();
 
 /*-----------------------------
@@ -111,14 +111,12 @@ const commands = [
     {
         name: 'ping',
         description: 'Replies with Pong!',
+        contexts: [0,1,2],
     },
-];
-const guild_commands = [
     {
         name: 'prompt',
         description: "Prompt the AI.",
-        contexts: [0],
-        guild_id: "1087175062425178163",
+        contexts: [0,1,2],
         options: [
             {
                 name: "prompt",
@@ -128,6 +126,9 @@ const guild_commands = [
             }
         ]
     },
+];
+const guild_commands = [
+    
 ]
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
@@ -150,6 +151,8 @@ client.on(Events.ClientReady, async readyClient => {
     }
     let [rows] = await pool.query("select value from base where name = 'status'")
     let status = rows[0].value;
+    client.user.setActivity(status, { type: ActivityType.playing});
+    client.user.setPresence({status: "idle"})
     console.log(`Zenu Online\nStatus:${status}`);
 });
 
@@ -185,7 +188,7 @@ client.on(Events.InteractionCreate, async interaction => {
             console.log(err);
             output = "Error contacting API.";
         }
-        
+
         await interaction.deleteReply();
         await interaction.followUp(output);
     }
