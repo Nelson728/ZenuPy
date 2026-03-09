@@ -1,8 +1,9 @@
 /*-----------------------------
 Globals
 *///----------------------------
-const { Client, GatewayIntentBits, REST, Routes, ActivityType, Events, MessageFlags} = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, ActivityType, Events, MessageFlags } = require("discord.js");
 require('dotenv').config();
+const { writeFile, readFile } = require("fs").promises
 
 /*-----------------------------
 MySQL
@@ -28,14 +29,15 @@ const http = require('http');
 const express = require("express");
 
 const app = express()
-app.set('port', 1727);
+const port = 1727
+app.set('port', port);
 
 const server = http.createServer(app);
 app.use(express.json());
 
-server.listen(1727);
+server.listen(port);
 server.on('error', onError);
-server.on('listening', () => { console.log("API listening on port 1727") });
+server.on('listening', () => { console.log("API listening on port " + port) });
 
 function onError(error) {
     if (error.syscall !== 'listen') {
@@ -111,12 +113,12 @@ const commands = [
     {
         name: 'ping',
         description: 'Replies with Pong!',
-        contexts: [0,1,2],
+        contexts: [0, 1, 2],
     },
     {
         name: 'prompt',
         description: "Prompt the AI.",
-        contexts: [0,1,2],
+        contexts: [0, 1, 2],
         options: [
             {
                 name: "prompt",
@@ -128,7 +130,7 @@ const commands = [
     },
 ];
 const guild_commands = [
-    
+
 ]
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
@@ -143,7 +145,7 @@ client.on(Events.ClientReady, async readyClient => {
         console.log('Started refreshing application (/) commands.');
 
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        await rest.put(Routes.applicationGuildCommands(client.user.id, "1087175062425178163"),{ body: guild_commands });
+        await rest.put(Routes.applicationGuildCommands(client.user.id, "1087175062425178163"), { body: guild_commands });
 
         console.log('Successfully reloaded application (/) commands.');
     } catch (error) {
@@ -151,8 +153,8 @@ client.on(Events.ClientReady, async readyClient => {
     }
     let [rows] = await pool.query("select value from base where name = 'status'")
     let status = rows[0].value;
-    client.user.setActivity(status, { type: ActivityType.playing});
-    client.user.setPresence({status: "idle"})
+    client.user.setActivity(status, { type: ActivityType.playing });
+    client.user.setPresence({ status: "idle" })
     console.log(`Zenu Online\nStatus:${status}`);
 });
 
@@ -161,6 +163,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.commandName === 'ping') {
         await interaction.reply('Pong!');
+        await CommandLog("ping", interaction.user.id, interaction.guildId);
     }
     if (interaction.commandName === 'prompt') {
         let prompt = interaction.options.getString("prompt");
@@ -182,15 +185,42 @@ client.on(Events.InteractionCreate, async interaction => {
         try {
             let response = await fetch(url, payload);
             let data = await response.json();
-            console.log(data.output)
             output = data.output;
         } catch (err) {
             console.log(err);
             output = "Error contacting API.";
         }
-
         await interaction.deleteReply();
         await interaction.followUp(output);
+        await CommandLog("prompt", interaction.user.id, interaction.guildId, [prompt], output);
     }
 });
+
+/*------------------------------
+Utility Functions
+*///----------------------------
+
+async function CommandLog(cmd, user, guild, args = [], response = "No response") {
+    await Log("command", cmd, user, guild, args, response);
+}
+async function Log(event, cmd, user, guild, args, response) {
+    let raw = await readFile("./Logs/v1Log.json", "utf8");
+    let oLog = JSON.parse(raw);
+    let log = {
+        timestamp: Date.now(),
+        event: event,
+        content: {
+            command: cmd,
+            user: user,
+            guild: guild,
+            args: args,
+            response: response
+        }
+    }
+    oLog.push(log);
+    console.log(JSON.stringify(log, null, 2))
+    await writeFile("./Logs/v1Log.json", JSON.stringify(oLog, null, 2));
+
+
+}
 client.login(process.env.TOKEN);
