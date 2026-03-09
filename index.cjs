@@ -75,32 +75,54 @@ app.use(async (req, res, next) => {
 
 // API endpoints
 
-app.use('/endpoint', async (req, res) => {
-    let output;
-    let content = JSON.stringify(req.body.content);
-    let type = req.body.type;
-
-    console.log(type);
-    console.log(req.body)
+app.get('/v1/logs/:type/:id', async (req, res) => {
+    //let content = JSON.stringify(req.body.content);
+    let { success, output } = {success: false, output: "Default response"}
+    let type = req.params.type;
 
     switch (type) {
         case "ai":
-            output = await handleAI(req);
-            return res.json({ success: true, output });
+            ({ success, output } = await handleAI(req));
+            return res.json({ success: success, output });
+        case "command":
+            ({ success, output } = await handleCommands(req));
+            return res.json({ success: success, output });
+
         default:
             return res.status(400).json({ error: "Unknown type" });
-
     }
-
-
 });
 
 /*------------------------------
 API handlers
 *///----------------------------
 
-async function handleAI(content) {
-    return null // Placeholder
+async function handleAI(req) {
+    let id = req.params.id;
+    let raw = await readFile("./Logs/v1Log.json", "utf8");
+    let log = JSON.parse(raw);
+    let output
+
+    for (let e of log) {
+        if (e.timestamp.toString() == id) {
+            output = e.content.response
+            return { success: true, output: output }
+        }
+    }
+    return { success: false, output: "Could not find log" }
+}
+async function handleCommands(req) {
+    let id = req.params.id;
+    let raw = await readFile("./Logs/v1Log.json", "utf8");
+    let log = JSON.parse(raw);
+    let output
+    for (let e of log) {
+        if (e.timestamp.toString() == id) {
+            output = e
+            return { success: true, output: output }
+        }
+    }
+    return { success: false, output: "Could not find log" }
 }
 
 /*------------------------------
@@ -200,14 +222,14 @@ client.on(Events.InteractionCreate, async interaction => {
 Utility Functions
 *///----------------------------
 
-async function CommandLog(cmd, user, guild, args = [], response = "No response") {
-    await Log("command", cmd, user, guild, args, response);
+async function CommandLog(cmd, timestamp = Date.now(), user, guild, args = [], response = "No response") {
+    await Log("command", cmd, timestamp, user, guild, args, response);
 }
-async function Log(event, cmd, user, guild, args, response) {
+async function Log(event, cmd, timestamp, user, guild, args, response) {
     let raw = await readFile("./Logs/v1Log.json", "utf8");
     let oLog = JSON.parse(raw);
     let log = {
-        timestamp: Date.now(),
+        timestamp: timestamp,
         event: event,
         content: {
             command: cmd,
