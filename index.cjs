@@ -5,7 +5,9 @@ Globals
 const { Client, GatewayIntentBits, REST, Routes, ActivityType, Events, MessageFlags } = require("discord.js");
 require('dotenv').config();
 const { writeFile, readFile } = require("fs").promises
-const api = require("./api.cjs");
+const api = require("./Utils/api.cjs");
+const {PrivateFunctionality} = require("./Utils/priv_private.js");
+const {CommandLog, MessageLog, Log} = require("./Utils/logger.js")
 
 /*-----------------------------
 MySQL
@@ -59,7 +61,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 // Client
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildModeration, GatewayIntentBits.GuildPresences] });
 
 client.on(Events.ClientReady, async readyClient => {
     try {
@@ -83,8 +85,17 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'ping') {
-        await interaction.reply('Pong!');
-        await CommandLog({cmd: "ping", user: interaction.user.id, guild: interaction.guildId})
+        await interaction.deferReply()
+            .catch(console.error);
+        let start = Number(Date.now());
+        let response = await fetch("https://zenu.nellium.us/api/v1/heartbeat");
+        let time = Date.now() - start
+        let status = `Pong!\nAPI took: ${time}ms`;
+        if (!response.ok) {
+            status = `API failed to connect.`;
+        }
+        await interaction.followUp(status);
+        await CommandLog({ cmd: "ping", user: interaction.user.id, guild: interaction.guildId, response: status });
     }
     if (interaction.commandName === 'prompt') {
         let prompt = interaction.options.getString("prompt");
@@ -113,35 +124,56 @@ client.on(Events.InteractionCreate, async interaction => {
         }
         await interaction.deleteReply();
         await interaction.followUp(output);
-        await CommandLog({cmd: "prompt", user: interaction.user.id, guild: interaction.guildId, args: [prompt], response: output })
+        await CommandLog({ cmd: "prompt", user: interaction.user.id, guild: interaction.guildId, args: [prompt], response: output })
     }
 });
 
+client.on(Events.MessageCreate, async message => {
+    PrivateFunctionality(message);
+    if (!message.content.startsWith("`")) return;
+    let args = message.content.slice(1).split(/ +/);
+    let command = args.shift().toLowerCase();
+})
 /*------------------------------
 Utility Functions
 *///----------------------------
 
-async function CommandLog({cmd, timestamp = Date.now(), user, guild, args = [], response = "No response"}) {
-    await Log("command", cmd, timestamp, user, guild, args, response);
-}
-async function Log(event, cmd, timestamp, user, guild, args, response) {
-    let raw = await readFile("./Logs/v1Log.json", "utf8");
-    let oLog = JSON.parse(raw);
-    let log = {
-        timestamp: timestamp,
-        event: event,
-        content: {
-            command: cmd,
-            user: user,
-            guild: guild,
-            args: args,
-            response: response
-        }
-    }
-    oLog.push(log);
-    console.log(JSON.stringify(log, null, 2));
-    await writeFile("./Logs/v1Log.json", JSON.stringify(oLog, null, 2));
+// async function CommandLog({ cmd, timestamp = Date.now(), user, guild, args = [], response = "No response" }) {
+//     await Log("command", cmd, timestamp, user, guild, args, response);
+// }
+// async function MessageLog({ user, guild, args = "" }) {
+//     await Log({ event: "deleted_message", timestamp: Date.now(), user: user, guild: guild, args: args })
+//     //"deleted_message", null, Date.now(), user, guild, args, null
+// }
+// async function Log({ event, cmd = null, timestamp, user, guild, args, response = null }) {
+//     let raw = await readFile("./Logs/v1Log.json", "utf8");
+//     let oLog = JSON.parse(raw);
+//     let content = {};
+//     if (event == "command") {
+//         content = {
+//             command: cmd,
+//             user: user,
+//             guild: guild,
+//             args: args,
+//             response: response
+//         }
+//     } else if (event == "deleted_message") {
+//         content = {
+//             message: args,
+//             user: user,
+//             guild: guild
+//         }
+//     }
+
+//     let log = {
+//         timestamp: timestamp,
+//         event: event,
+//         content: content
+//     }
+//     oLog.push(log);
+//     console.log(JSON.stringify(log, null, 2));
+//     await writeFile("./Logs/v1Log.json", JSON.stringify(oLog, null, 2));
 
 
-}
+// }
 client.login(process.env.TOKEN);

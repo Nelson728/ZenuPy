@@ -1,5 +1,5 @@
 /package-lock.json
-/sqltest.py
 /node_modules
-.env
+*.env
 /Logs
+priv_*
